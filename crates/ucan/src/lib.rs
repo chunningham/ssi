@@ -2,7 +2,6 @@ pub mod error;
 use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
 pub use error::Error;
 use ipld_core::{cid::Cid, codec::Codec};
-use iref::UriBuf;
 use serde::{Deserialize, Serialize};
 use serde_ipld_dagjson::codec::DagJsonCodec;
 use serde_json::Value as JsonValue;
@@ -240,7 +239,7 @@ pub enum TimeInvalid {
     TooLate,
 }
 
-impl<F, A> Payload<F, A> {
+impl<F, C> Payload<F, C> {
     pub fn validate_time(&self, time: Option<f64>) -> Result<(), TimeInvalid> {
         let t = time.unwrap_or_else(now);
         match (self.not_before, t > self.expiration.as_seconds()) {
@@ -251,24 +250,24 @@ impl<F, A> Payload<F, A> {
     }
 }
 
-impl<F, A> Payload<F, A>
+impl<F, C> Payload<F, C>
 where
     F: for<'a> Deserialize<'a> + Serialize,
-    A: for<'a> Deserialize<'a> + Serialize,
+    C: for<'a> Deserialize<'a> + Serialize,
 {
     // NOTE IntoIter::new is deprecated, but into_iter() returns references until we move to 2021 edition
     #[allow(deprecated)]
-    pub fn sign(self, algorithm: Algorithm, key: &JWK) -> Result<Ucan<F, A>, Error>
+    pub fn sign(self, algorithm: Algorithm, key: &JWK) -> Result<Ucan<F, C>, Error>
     where
         F: Serialize,
-        A: Serialize,
+        C: Serialize,
     {
         let header = Header {
             algorithm,
             type_: Some("JWT".to_string()),
             additional_parameters: std::array::IntoIter::new([(
                 "ucv".to_string(),
-                serde_json::Value::String("0.9.0".to_string()),
+                serde_json::Value::String("0.10.0".to_string()),
             )])
             .collect(),
             ..Default::default()
