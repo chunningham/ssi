@@ -297,6 +297,7 @@ impl<F, A> Payload<F, A> {
                 serde_json::Value::String("0.9.0".to_string()),
             )])
             .collect(),
+            jwk: Some(key.to_public()),
             ..Default::default()
         };
 
