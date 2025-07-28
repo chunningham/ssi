@@ -1,13 +1,9 @@
 pub mod error;
 use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
 pub use error::Error;
-use iref::UriBuf;
-use ipld_core::{
-    codec::Codec,
-    cid::Cid
-};
-use serde_ipld_dagjson::codec::DagJsonCodec;
+use ipld_core::{cid::Cid, codec::Codec};
 use serde::{Deserialize, Serialize};
+use serde_ipld_dagjson::codec::DagJsonCodec;
 use serde_json::Value as JsonValue;
 use serde_with::{
     base64::{Base64, UrlSafe},
@@ -29,6 +25,7 @@ use std::{
     // io::{Read, Seek, Write},
     str::Utf8Error,
 };
+use ucan_capabilities_object::Capabilities;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Ucan<F = JsonValue, A = JsonValue> {
@@ -55,8 +52,7 @@ impl Default for UcanCodec {
     }
 }
 
-impl <F, A> Ucan<F, A>
-{
+impl<F, A> Ucan<F, A> {
     pub fn header(&self) -> &Header {
         &self.header
     }
@@ -71,10 +67,9 @@ impl <F, A> Ucan<F, A>
 impl<F, A> Ucan<F, A>
 where
     F: for<'a> Deserialize<'a> + Serialize,
-    A: for<'a> Deserialize<'a> + Serialize
+    A: for<'a> Deserialize<'a> + Serialize,
 {
-    pub async fn verify_signature(&self, resolver: &impl DIDResolver) -> Result<(), Error>
-    {
+    pub async fn verify_signature(&self, resolver: &impl DIDResolver) -> Result<(), Error> {
         // extract or deduce signing key
         let key: JWK = match (
             self.payload.issuer.get(..4),
@@ -126,13 +121,11 @@ where
         )?)
     }
 
-    pub fn encode(&self) -> Result<String, Error>
-    {
+    pub fn encode(&self) -> Result<String, Error> {
         Ok(match &self.codec {
             UcanCodec::Raw(r) => r.clone(),
             UcanCodec::DagJson => [
-                BASE64_URL_SAFE_NO_PAD
-                    .encode(DagJsonCodec::encode_to_vec(&self.header)?),
+                BASE64_URL_SAFE_NO_PAD.encode(DagJsonCodec::encode_to_vec(&self.header)?),
                 BASE64_URL_SAFE_NO_PAD.encode(DagJsonCodec::encode_to_vec(&self.payload)?),
                 BASE64_URL_SAFE_NO_PAD.encode(&self.signature),
             ]
@@ -140,13 +133,11 @@ where
         })
     }
 
-    pub fn to_block<S, H>(&self, _hash: H) -> Result<Vec<u8>, Error>
-    {
+    pub fn to_block<S, H>(&self, _hash: H) -> Result<Vec<u8>, Error> {
         self.encode().map(|s| s.into_bytes())
     }
 
-    pub fn decode(jwt: &str) -> Result<Self, Error>
-    {
+    pub fn decode(jwt: &str) -> Result<Self, Error> {
         let parts = split_jws(jwt).and_then(|(h, p, s)| decode_jws_parts(h, p.as_bytes(), s))?;
         let (payload, codec): (Payload<F, A>, UcanCodec) =
             match serde_json::from_slice(&parts.signing_bytes.payload) {
@@ -178,8 +169,7 @@ where
         })
     }
 
-    pub fn from_block(block: &[u8], cid: &Cid) -> Result<Self, FromIpldBlockError>
-    {
+    pub fn from_block(block: &[u8], cid: &Cid) -> Result<Self, FromIpldBlockError> {
         if cid.codec() == <DagJsonCodec as Codec<Payload>>::CODE || cid.codec() == 0x55 {
             Ok(Self::decode(std::str::from_utf8(block)?)?)
         } else {
@@ -238,7 +228,7 @@ pub struct Payload<F = JsonValue, A = JsonValue> {
     #[serde(rename = "prf")]
     pub proof: Vec<Cid>,
     #[serde(rename = "att")]
-    pub attenuation: Vec<Capability<A>>,
+    pub attenuation: Capabilities<A>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -249,7 +239,7 @@ pub enum TimeInvalid {
     TooLate,
 }
 
-impl<F, A> Payload<F, A> {
+impl<F, C> Payload<F, C> {
     pub fn validate_time(&self, time: Option<f64>) -> Result<(), TimeInvalid> {
         let t = time.unwrap_or_else(now);
         match (self.not_before, t > self.expiration.as_seconds()) {
@@ -260,24 +250,24 @@ impl<F, A> Payload<F, A> {
     }
 }
 
-impl<F, A> Payload<F, A>
+impl<F, C> Payload<F, C>
 where
     F: for<'a> Deserialize<'a> + Serialize,
-    A: for<'a> Deserialize<'a> + Serialize
+    C: for<'a> Deserialize<'a> + Serialize,
 {
     // NOTE IntoIter::new is deprecated, but into_iter() returns references until we move to 2021 edition
     #[allow(deprecated)]
-    pub fn sign(self, algorithm: Algorithm, key: &JWK) -> Result<Ucan<F, A>, Error>
+    pub fn sign(self, algorithm: Algorithm, key: &JWK) -> Result<Ucan<F, C>, Error>
     where
         F: Serialize,
-        A: Serialize,
+        C: Serialize,
     {
         let header = Header {
             algorithm,
             type_: Some("JWT".to_string()),
             additional_parameters: std::array::IntoIter::new([(
                 "ucv".to_string(),
-                serde_json::Value::String("0.9.0".to_string()),
+                serde_json::Value::String("0.10.0".to_string()),
             )])
             .collect(),
             ..Default::default()
@@ -286,8 +276,7 @@ where
         let signature = sign_bytes(
             algorithm,
             [
-                BASE64_URL_SAFE_NO_PAD
-                    .encode(DagJsonCodec::encode_to_vec(&header)?),
+                BASE64_URL_SAFE_NO_PAD.encode(DagJsonCodec::encode_to_vec(&header)?),
                 BASE64_URL_SAFE_NO_PAD.encode(DagJsonCodec::encode_to_vec(&self)?),
             ]
             .join(".")
@@ -347,23 +336,6 @@ pub enum BlockchainAccountIdError {
     Parse(#[from] BlockchainAccountIdParseError),
 }
 
-#[serde_as]
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
-#[serde(untagged)]
-pub enum UcanResource {
-    Proof(#[serde_as(as = "DisplayFromStr")] UcanProofRef),
-    URI(UriBuf),
-}
-
-impl Display for UcanResource {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match &self {
-            Self::Proof(p) => write!(f, "{p}"),
-            Self::URI(u) => write!(f, "{u}"),
-        }
-    }
-}
-
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct UcanProofRef(pub Cid);
 
@@ -391,48 +363,6 @@ impl std::str::FromStr for UcanProofRef {
                 .ok_or(ProofRefParseErr::Format)??,
         ))
     }
-}
-
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct UcanScope {
-    pub namespace: String,
-    pub capability: String,
-}
-
-impl std::fmt::Display for UcanScope {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}/{}", self.namespace, self.capability)
-    }
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum UcanScopeParseErr {
-    #[error("Missing namespace")]
-    Namespace,
-}
-
-impl std::str::FromStr for UcanScope {
-    type Err = UcanScopeParseErr;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (ns, cap) = s.split_once('/').ok_or(UcanScopeParseErr::Namespace)?;
-        Ok(UcanScope {
-            namespace: ns.to_string(),
-            capability: cap.to_string(),
-        })
-    }
-}
-
-/// 3.2.5 A JSON capability MUST include the with and can fields and
-/// MAY have additional fields needed to describe the capability
-#[serde_as]
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
-pub struct Capability<A = JsonValue> {
-    pub with: UcanResource,
-    #[serde_as(as = "DisplayFromStr")]
-    pub can: UcanScope,
-    #[serde(rename = "nb", skip_serializing_if = "Option::is_none")]
-    pub additional_fields: Option<A>,
 }
 
 fn now() -> f64 {
