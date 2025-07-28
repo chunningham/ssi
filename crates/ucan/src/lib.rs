@@ -270,6 +270,7 @@ where
                 serde_json::Value::String("0.10.0".to_string()),
             )])
             .collect(),
+            jwk: Some(key.to_public()),
             ..Default::default()
         };
 
