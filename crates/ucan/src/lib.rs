@@ -39,6 +39,8 @@ pub struct Ucan<F = JsonValue, A = JsonValue> {
     codec: UcanCodec,
 }
 
+const VERSION: &str = "0.10.0";
+
 #[derive(Clone, PartialEq, Debug)]
 enum UcanCodec {
     // maintain serialization
@@ -153,8 +155,8 @@ where
         }
 
         match parts.signing_bytes.header.additional_parameters.get("ucv") {
-            Some(JsonValue::String(v)) if v == "0.9.0" => (),
-            _ => return Err(Error::MissingUCANHeaderField("ucv: 0.9.0")),
+            Some(JsonValue::String(v)) if v == VERSION => (),
+            _ => return Err(Error::MissingUCANHeaderField("ucv: 0.10.0")),
         }
 
         if !payload.audience.starts_with("did:") {
@@ -267,7 +269,7 @@ where
             type_: Some("JWT".to_string()),
             additional_parameters: std::array::IntoIter::new([(
                 "ucv".to_string(),
-                serde_json::Value::String("0.10.0".to_string()),
+                serde_json::Value::String(VERSION.to_string()),
             )])
             .collect(),
             jwk: Some(key.to_public()),
